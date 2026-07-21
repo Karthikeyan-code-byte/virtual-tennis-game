@@ -5,35 +5,40 @@ const ctx = canvas.getContext('2d');
 let gameRunning = false;
 let playerScore = 0;
 let opponentScore = 0;
+let rallyStopped = true;
+let lastHitter = 'none'; // Track who hit the ball last
 
-// Player Paddle
+// Player Paddle (Racket)
 const paddle = {
-    x: canvas.width / 2 - 50,
-    y: canvas.height - 30,
-    width: 100,
-    height: 15,
-    speed: 8,
+    x: canvas.width / 2 - 60,
+    y: canvas.height - 80,
+    width: 120,
+    height: 20,
+    speed: 10,
     dx: 0
 };
 
-// Opponent Paddle
+// Opponent Paddle (Racket)
 const opponent = {
-    x: canvas.width / 2 - 50,
-    y: 20,
-    width: 100,
-    height: 15,
-    speed: 5,
+    x: canvas.width / 2 - 60,
+    y: 60,
+    width: 120,
+    height: 20,
+    speed: 6,
     dx: 0
 };
 
-// Ball
+// Ball with realistic physics
 const ball = {
     x: canvas.width / 2,
     y: canvas.height / 2,
-    radius: 8,
-    dx: 5,
-    dy: -5,
-    speed: 5
+    radius: 10,
+    dx: 0,
+    dy: 0,
+    speed: 0,
+    maxSpeed: 12,
+    friction: 0.98,
+    gravity: 0.3
 };
 
 // Keyboard controls
@@ -57,22 +62,25 @@ document.getElementById('resetBtn').addEventListener('click', resetGame);
 function startGame() {
     if (!gameRunning) {
         gameRunning = true;
-        document.getElementById('gameStatus').textContent = 'Game Started! Hit the ball!';
+        rallyStopped = true;
+        document.getElementById('gameStatus').textContent = 'Match Started! Opponent is serving...';
         document.getElementById('startBtn').disabled = true;
+        serveBall();
         gameLoop();
     }
 }
 
 function resetGame() {
     gameRunning = false;
+    rallyStopped = true;
     playerScore = 0;
     opponentScore = 0;
     ball.x = canvas.width / 2;
     ball.y = canvas.height / 2;
-    ball.dx = 5;
-    ball.dy = -5;
-    paddle.x = canvas.width / 2 - 50;
-    opponent.x = canvas.width / 2 - 50;
+    ball.dx = 0;
+    ball.dy = 0;
+    paddle.x = canvas.width / 2 - 60;
+    opponent.x = canvas.width / 2 - 60;
     document.getElementById('playerScore').textContent = '0';
     document.getElementById('opponentScore').textContent = '0';
     document.getElementById('gameStatus').textContent = 'Ready to serve!';
@@ -80,23 +88,43 @@ function resetGame() {
     draw();
 }
 
+function serveBall() {
+    // Opponent serves the ball
+    ball.x = canvas.width / 2 + (Math.random() - 0.5) * 100;
+    ball.y = 100;
+    ball.dx = (Math.random() - 0.5) * 8;
+    ball.dy = 8; // Coming towards player
+    lastHitter = 'opponent';
+    rallyStopped = false;
+}
+
 function hitBall() {
-    // Check if ball is near player paddle
-    if (Math.abs(ball.y - paddle.y) < 30 && 
-        ball.x > paddle.x && 
-        ball.x < paddle.x + paddle.width &&
-        ball.dy > 0) {
+    // Check if ball is near player paddle and coming down
+    if (Math.abs(ball.y - paddle.y) < 50 && 
+        ball.x > paddle.x - 20 && 
+        ball.x < paddle.x + paddle.width + 20 &&
+        ball.dy > 0 &&
+        lastHitter === 'opponent') {
         
-        ball.dy = -ball.dy;
-        ball.dy -= 1; // Increase speed
-        
-        // Add spin based on paddle position
+        // Calculate hit position for spin
         const hitPos = (ball.x - paddle.x) / paddle.width;
-        ball.dx = (hitPos - 0.5) * 10;
+        
+        // Ball direction based on where it hits the paddle
+        ball.dx = (hitPos - 0.5) * 14;
+        ball.dy = -Math.abs(ball.dy) - 2; // Reverse and increase speed
+        
+        // Add velocity
+        const hitSpeed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+        const maxHitSpeed = 11;
+        if (hitSpeed > maxHitSpeed) {
+            ball.dx = (ball.dx / hitSpeed) * maxHitSpeed;
+            ball.dy = (ball.dy / hitSpeed) * maxHitSpeed;
+        }
         
         playerScore += 10;
+        lastHitter = 'player';
         document.getElementById('playerScore').textContent = playerScore;
-        document.getElementById('gameStatus').textContent = `Player Hit! +10 points (Total: ${playerScore})`;
+        document.getElementById('gameStatus').textContent = `Great Shot! +10 points (Total: ${playerScore})`;
         
         checkWin();
     }
@@ -111,13 +139,45 @@ function updatePaddles() {
         paddle.x += paddle.speed;
     }
 
-    // Opponent AI
+    // Opponent AI with improved tracking
     const opponentCenter = opponent.x + opponent.width / 2;
-    if (ball.y < 200) { // Only move when ball is coming
-        if (opponentCenter < ball.x - 35) {
-            opponent.x += opponent.speed;
-        } else if (opponentCenter > ball.x + 35) {
-            opponent.x -= opponent.speed;
+    
+    if (ball.y > 50 && ball.y < canvas.height / 2 - 50 && !rallyStopped) {
+        // Opponent tracks the ball intelligently
+        const ballCenter = ball.x;
+        const distance = ballCenter - opponentCenter;
+        
+        if (Math.abs(distance) > 30) {
+            if (distance > 0 && opponent.x + opponent.width < canvas.width) {
+                opponent.x += opponent.speed;
+            } else if (distance < 0 && opponent.x > 0) {
+                opponent.x -= opponent.speed;
+            }
+        }
+        
+        // Opponent tries to hit the ball
+        if (Math.abs(ball.y - opponent.y) < 50 && 
+            ball.x > opponent.x - 20 && 
+            ball.x < opponent.x + opponent.width + 20 &&
+            ball.dy < 0 &&
+            lastHitter === 'player') {
+            
+            const hitPos = (ball.x - opponent.x) / opponent.width;
+            ball.dx = (hitPos - 0.5) * 14;
+            ball.dy = Math.abs(ball.dy) + 2;
+            
+            const hitSpeed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+            const maxHitSpeed = 11;
+            if (hitSpeed > maxHitSpeed) {
+                ball.dx = (ball.dx / hitSpeed) * maxHitSpeed;
+                ball.dy = (ball.dy / hitSpeed) * maxHitSpeed;
+            }
+            
+            opponentScore += 10;
+            lastHitter = 'opponent';
+            document.getElementById('opponentScore').textContent = opponentScore;
+            document.getElementById('gameStatus').textContent = `Opponent Hit! +10 points (Total: ${opponentScore})`;
+            checkWin();
         }
     }
 
@@ -129,103 +189,99 @@ function updatePaddles() {
 }
 
 function updateBall() {
+    // Apply gravity
+    ball.dy += ball.gravity;
+    
+    // Apply friction
+    ball.dx *= ball.friction;
+    ball.dy *= ball.friction;
+
+    // Update position
     ball.x += ball.dx;
     ball.y += ball.dy;
 
     // Ball collision with walls (left and right)
-    if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) {
-        ball.dx = -ball.dx;
-        ball.x = ball.x - ball.radius < 0 ? ball.radius : canvas.width - ball.radius;
+    if (ball.x - ball.radius < 0) {
+        ball.x = ball.radius;
+        ball.dx = -ball.dx * 0.8;
+    } else if (ball.x + ball.radius > canvas.width) {
+        ball.x = canvas.width - ball.radius;
+        ball.dx = -ball.dx * 0.8;
     }
 
-    // Ball collision with opponent paddle
-    if (ball.dy < 0 &&
-        ball.x > opponent.x &&
-        ball.x < opponent.x + opponent.width &&
-        ball.y - ball.radius < opponent.y + opponent.height) {
-        
-        ball.dy = -ball.dy;
-        ball.y = opponent.y + opponent.height + ball.radius;
-        opponentScore += 10;
-        document.getElementById('opponentScore').textContent = opponentScore;
-        document.getElementById('gameStatus').textContent = `Opponent Hit! +10 points (Total: ${opponentScore})`;
-        checkWin();
-    }
-
-    // Ball collision with player paddle
-    if (ball.dy > 0 &&
-        ball.x > paddle.x &&
-        ball.x < paddle.x + paddle.width &&
-        ball.y + ball.radius > paddle.y) {
-        
-        ball.dy = -ball.dy;
-        ball.y = paddle.y - ball.radius;
-    }
-
-    // Ball out of bounds (top)
+    // Ball out of bounds (top) - player wins point
     if (ball.y - ball.radius < 0) {
         playerScore += 10;
         document.getElementById('playerScore').textContent = playerScore;
-        resetBall();
-        document.getElementById('gameStatus').textContent = 'Point! Ball out of bounds!';
+        document.getElementById('gameStatus').textContent = '🎾 Opponent missed! +10 points!';
         checkWin();
+        rallyStopped = true;
+        setTimeout(serveBall, 1500);
     }
 
-    // Ball out of bounds (bottom)
+    // Ball out of bounds (bottom) - opponent wins point
     if (ball.y + ball.radius > canvas.height) {
         opponentScore += 10;
         document.getElementById('opponentScore').textContent = opponentScore;
-        resetBall();
-        document.getElementById('gameStatus').textContent = 'Opponent Point! Ball out of bounds!';
+        document.getElementById('gameStatus').textContent = '😅 You missed! Opponent +10 points!';
         checkWin();
+        rallyStopped = true;
+        setTimeout(serveBall, 1500);
     }
-}
-
-function resetBall() {
-    ball.x = canvas.width / 2;
-    ball.y = canvas.height / 2;
-    ball.dx = (Math.random() - 0.5) * 6;
-    ball.dy = -5;
 }
 
 function checkWin() {
     if (playerScore >= 100) {
         gameRunning = false;
-        document.getElementById('gameStatus').textContent = '🏆 You Won! Congratulations!';
+        rallyStopped = true;
+        document.getElementById('gameStatus').textContent = '🏆 🎉 YOU WON! CHAMPION! 🎉';
         document.getElementById('startBtn').disabled = false;
     } else if (opponentScore >= 100) {
         gameRunning = false;
-        document.getElementById('gameStatus').textContent = '😔 Opponent Won! Try Again!';
+        rallyStopped = true;
+        document.getElementById('gameStatus').textContent = '😔 Opponent Won! Better luck next time!';
         document.getElementById('startBtn').disabled = false;
     }
 }
 
-function drawCourt() {
-    // Court background
+function drawStadium() {
+    // Sky gradient (background)
+    const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.3);
+    skyGradient.addColorStop(0, '#87CEEB');
+    skyGradient.addColorStop(1, '#E0F6FF');
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height * 0.3);
+
+    // Stands background (top)
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(0, 0, canvas.width, 50);
+    
+    // Draw spectators (simplified)
+    ctx.fillStyle = '#FF6B6B';
+    for (let i = 0; i < canvas.width; i += 30) {
+        ctx.fillRect(i, 10, 20, 20);
+    }
+
+    // Stadium floor
     ctx.fillStyle = '#90EE90';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, canvas.height * 0.3, canvas.width, canvas.height * 0.7);
 
-    // Court lines
+    // Court lines - outer boundary
     ctx.strokeStyle = 'white';
-    ctx.lineWidth = 2;
-
-    // Center line
-    ctx.setLineDash([10, 10]);
-    ctx.beginPath();
-    ctx.moveTo(0, canvas.height / 2);
-    ctx.lineTo(canvas.width, canvas.height / 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Service boxes
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(canvas.width / 4, canvas.height / 4, canvas.width / 2, canvas.height / 4);
-    ctx.strokeRect(canvas.width / 4, canvas.height - canvas.height / 4 - canvas.height / 4, canvas.width / 2, canvas.height / 4);
-
-    // Net
-    ctx.strokeStyle = '#8B7355';
     ctx.lineWidth = 3;
+    ctx.strokeRect(60, canvas.height * 0.3, canvas.width - 120, canvas.height * 0.7 - 40);
+
+    // Service boxes (both sides)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.lineWidth = 2;
+    const boxWidth = (canvas.width - 120) / 3;
+    const boxHeight = (canvas.height * 0.7 - 40) / 4;
+    ctx.strokeRect(60 + boxWidth, canvas.height * 0.3, boxWidth, boxHeight * 2);
+    ctx.strokeRect(60 + boxWidth, canvas.height * 0.3 + boxHeight * 2, boxWidth, boxHeight * 2);
+
+    // Center court line (Net)
+    ctx.strokeStyle = '#8B7355';
+    ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(0, canvas.height / 2);
     ctx.lineTo(canvas.width, canvas.height / 2);
@@ -234,54 +290,70 @@ function drawCourt() {
     // Net mesh pattern
     ctx.strokeStyle = '#A0826D';
     ctx.lineWidth = 1;
-    for (let i = 0; i < canvas.width; i += 15) {
+    for (let i = 0; i < canvas.width; i += 20) {
         ctx.beginPath();
-        ctx.moveTo(i, canvas.height / 2 - 5);
-        ctx.lineTo(i, canvas.height / 2 + 5);
+        ctx.moveTo(i, canvas.height / 2 - 8);
+        ctx.lineTo(i, canvas.height / 2 + 8);
         ctx.stroke();
+    }
+
+    // Stands background (bottom)
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+    ctx.fillStyle = '#4ECDC4';
+    for (let i = 0; i < canvas.width; i += 30) {
+        ctx.fillRect(i, canvas.height - 40, 20, 20);
     }
 }
 
 function drawPaddles() {
-    // Player paddle
+    // Player paddle (racket)
     ctx.fillStyle = '#FF6B6B';
     ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
     ctx.strokeStyle = '#CC0000';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.strokeRect(paddle.x, paddle.y, paddle.width, paddle.height);
+    ctx.fillStyle = '#FF8A8A';
+    ctx.fillRect(paddle.x + 10, paddle.y + 3, paddle.width - 20, paddle.height - 6);
 
-    // Opponent paddle
+    // Opponent paddle (racket)
     ctx.fillStyle = '#4ECDC4';
     ctx.fillRect(opponent.x, opponent.y, opponent.width, opponent.height);
     ctx.strokeStyle = '#1A9B8E';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.strokeRect(opponent.x, opponent.y, opponent.width, opponent.height);
+    ctx.fillStyle = '#7FE5DC';
+    ctx.fillRect(opponent.x + 10, opponent.y + 3, opponent.width - 20, opponent.height - 6);
 }
 
 function drawBall() {
-    // Ball glow
-    const gradient = ctx.createRadialGradient(ball.x, ball.y, 0, ball.x, ball.y, ball.radius * 2);
-    gradient.addColorStop(0, 'rgba(255, 200, 0, 0.3)');
-    gradient.addColorStop(1, 'rgba(255, 200, 0, 0)');
-    ctx.fillStyle = gradient;
+    // Ball glow effect
+    const glowGradient = ctx.createRadialGradient(ball.x, ball.y, 0, ball.x, ball.y, ball.radius * 2.5);
+    glowGradient.addColorStop(0, 'rgba(255, 255, 0, 0.4)');
+    glowGradient.addColorStop(0.5, 'rgba(255, 255, 0, 0.1)');
+    glowGradient.addColorStop(1, 'rgba(255, 255, 0, 0)');
+    ctx.fillStyle = glowGradient;
     ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.radius * 2, 0, Math.PI * 2);
+    ctx.arc(ball.x, ball.y, ball.radius * 2.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Ball
-    ctx.fillStyle = '#FFD700';
+    // Tennis ball (yellow/green)
+    const ballGradient = ctx.createRadialGradient(ball.x - 3, ball.y - 3, 0, ball.x, ball.y, ball.radius);
+    ballGradient.addColorStop(0, '#FFFF99');
+    ballGradient.addColorStop(1, '#CCFF00');
+    ctx.fillStyle = ballGradient;
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#FFA500';
-    ctx.lineWidth = 2;
-    ctx.stroke();
 
-    // Ball curve pattern
-    ctx.strokeStyle = '#FFA500';
-    ctx.lineWidth = 1;
+    // Tennis ball pattern (curves)
+    ctx.strokeStyle = '#AACCCC';
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.radius - 2, 0, Math.PI);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius - 2, Math.PI, 0);
     ctx.stroke();
 }
 
@@ -290,13 +362,13 @@ function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Draw elements
-    drawCourt();
+    drawStadium();
     drawPaddles();
     drawBall();
 }
 
 function gameLoop() {
-    if (gameRunning) {
+    if (gameRunning && !rallyStopped) {
         updatePaddles();
         updateBall();
     }
