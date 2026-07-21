@@ -19,7 +19,7 @@ body {
     border-radius: 20px;
     padding: 30px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-width: 900px;
+    max-width: 1100px;
     width: 100%;
 }
 
@@ -40,7 +40,7 @@ body {
     justify-content: center;
     align-items: center;
     gap: 30px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
     padding: 20px;
     border-radius: 15px;
     color: white;
@@ -91,11 +91,12 @@ body {
 #gameCanvas {
     display: block;
     margin: 0 auto 30px;
-    border: 3px solid #1e3c72;
+    border: 5px solid #1e3c72;
     border-radius: 10px;
-    background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 100%);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-    cursor: none;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+    cursor: crosshair;
+    max-width: 100%;
+    height: auto;
 }
 
 .controls {
