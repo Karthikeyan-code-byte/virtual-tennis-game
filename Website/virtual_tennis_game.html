@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PADDLE // Telemetry Table Tennis</title>
+<style>
+  :root{
+    --bg:#0a0e14;
+    --panel:#10151d;
+    --line:#1c2530;
+    --cyan:#00e5c7;
+    --amber:#ffb300;
+    --red:#ff4d5e;
+    --text:#d7e2ea;
+    --mute:#5c6b7a;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; padding:0; height:100%; overflow:hidden;
+    background:var(--bg); color:var(--text);
+    font-family: 'Courier New', monospace;
+  }
+  #scene{ position:absolute; inset:0; }
+  canvas{ display:block; }
+
+  .hud{
+    position:absolute; z-index:10; pointer-events:none;
+    font-family: 'Courier New', monospace;
+  }
+  #topbar{
+    top:0; left:0; right:0; height:64px;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 22px;
+    background:linear-gradient(to bottom, rgba(10,14,20,0.9), rgba(10,14,20,0));
+  }
+  .brand{
+    font-size:15px; letter-spacing:3px; color:var(--cyan);
+    font-weight:bold;
+  }
+  .brand span{ color:var(--mute); }
+  .score-block{ display:flex; gap:28px; align-items:baseline; }
+  .score-num{ font-size:28px; color:var(--text); font-weight:bold; }
+  .score-label{ font-size:10px; color:var(--mute); letter-spacing:2px; }
+  .lives{ display:flex; gap:6px; }
+  .life-dot{ width:10px; height:10px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+  .life-dot.lost{ background:var(--line); box-shadow:none; }
+
+  #telemetry{
+    bottom:0; left:0; right:0; height:96px;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 22px;
+    background:linear-gradient(to top, rgba(10,14,20,0.95), rgba(10,14,20,0));
+    font-size:11px; letter-spacing:1px;
+  }
+  .telem-col{ display:flex; flex-direction:column; gap:4px; min-width:150px; }
+  .telem-row{ display:flex; gap:8px; align-items:center; }
+  .telem-label{ color:var(--mute); width:42px; }
+  .telem-bar{ width:110px; height:6px; background:var(--line); position:relative; border-radius:3px; overflow:hidden; }
+  .telem-fill{ position:absolute; top:0; bottom:0; left:50%; background:var(--cyan); }
+  .telem-val{ color:var(--cyan); width:52px; text-align:right; }
+
+  #status{
+    display:flex; align-items:center; gap:12px; pointer-events: auto;
+  }
+  #status-dot{ width:9px; height:9px; border-radius:50%; background:var(--red); box-shadow:0 0 6px var(--red); }
+  #status-dot.live{ background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+  #status-text{ color:var(--mute); font-size:10px; letter-spacing:1px; }
+
+  .btn-hud {
+    font-family:'Courier New',monospace; letter-spacing:1px; font-size:10px;
+    padding:6px 10px; border-radius:2px; border:1px solid var(--cyan);
+    background:rgba(0,229,199,0.1); color:var(--cyan); cursor:pointer;
+  }
+  .btn-hud:hover { background:var(--cyan); color:#04211d; font-weight:bold; }
+
+  /* connection / start panel */
+  #panel{
+    position:absolute; z-index:20; top:0; left:0; right:0; bottom:0;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(6,8,12,0.88);
+    backdrop-filter: blur(2px);
+  }
+  #panel.hidden{ display:none; }
+  .card{
+    width:400px; background:var(--panel); border:1px solid var(--line);
+    padding:28px 26px; border-radius:4px;
+    box-shadow:0 0 40px rgba(0,229,199,0.06);
+  }
+  .card h1{
+    font-size:16px; letter-spacing:3px; color:var(--cyan); margin:0 0 4px 0;
+  }
+  .card p.sub{ color:var(--mute); font-size:11px; margin:0 0 20px 0; letter-spacing:1px; }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:10px; color:var(--mute); letter-spacing:2px; margin-bottom:6px; }
+  .field input[type="text"], .field input[type="range"]{
+    width:100%; background:#080b10; border:1px solid var(--line); color:var(--text);
+    padding:8px; font-family:'Courier New',monospace; font-size:13px; border-radius:2px;
+  }
+  .field input:focus{ outline:none; border-color:var(--cyan); }
+  
+  .checkbox-row { display:flex; gap:16px; margin:12px 0; font-size:10px; color:var(--mute); }
+  .checkbox-row label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+
+  .btnrow{ display:flex; gap:10px; margin-top:18px; }
+  button{
+    font-family:'Courier New',monospace; letter-spacing:2px; font-size:11px;
+    padding:11px 14px; border-radius:2px; border:1px solid var(--line);
+    background:#0d1219; color:var(--text); cursor:pointer; flex:1;
+  }
+  button.primary{ background:var(--cyan); color:#04211d; border-color:var(--cyan); font-weight:bold; }
+  button:hover{ filter:brightness(1.15); }
+  #panel-msg{ margin-top:12px; font-size:10px; color:var(--mute); min-height:14px; }
+  #panel-msg.err{ color:var(--red); }
+  #panel-msg.ok{ color:var(--cyan); }
+
+  #gameover{
+    position:absolute; z-index:25; top:0; left:0; right:0; bottom:0;
+    display:none; align-items:center; justify-content:center;
+    background:rgba(6,8,12,0.85);
+  }
+  #gameover.show{ display:flex; }
+  .go-card{ text-align:center; width:380px; background:var(--panel); border:1px solid var(--line); padding:26px; border-radius:4px; }
+  .go-card h2{ font-size:26px; letter-spacing:4px; color:var(--red); margin:0; }
+  .go-card p{ color:var(--mute); font-size:12px; margin:10px 0 20px; letter-spacing:1px; }
+  .go-card button{ width:180px; }
+
+  #hint{
+    position:absolute; z-index:10; top:74px; left:22px;
+    font-size:10px; color:var(--mute); letter-spacing:1px; pointer-events:none;
+  }
+
+  /* name entry panel */
+  #namePanel{
+    position:absolute; z-index:21; top:0; left:0; right:0; bottom:0;
+    display:none; align-items:center; justify-content:center;
+    background:rgba(6,8,12,0.88);
+    backdrop-filter: blur(2px);
+  }
+  #namePanel.show{ display:flex; }
+  #nameInput{
+    width:100%; background:#080b10; border:1px solid var(--line); color:var(--text);
+    padding:10px; font-family:'Courier New',monospace; font-size:14px; border-radius:2px;
+    letter-spacing:1px; text-transform:uppercase;
+  }
+  #nameInput:focus{ outline:none; border-color:var(--cyan); }
+
+  /* leaderboard */
+  .leaderboard{
+    margin:16px 0; text-align:left; max-height:220px; overflow-y:auto;
+    border:1px solid var(--line); border-radius:2px;
+  }
+  .lb-row{
+    display:flex; align-items:center; gap:10px; padding:7px 12px;
+    font-size:12px; border-bottom:1px solid var(--line);
+  }
+  .lb-row:last-child{ border-bottom:none; }
+  .lb-rank{ color:var(--mute); width:22px; }
+  .lb-name{ flex:1; color:var(--text); letter-spacing:1px; }
+  .lb-score{ color:var(--cyan); font-weight:bold; }
+  .lb-row.me{ background:rgba(0,229,199,0.08); }
+  .lb-row.me .lb-name{ color:var(--cyan); }
+  .lb-empty{ padding:14px 12px; color:var(--mute); font-size:11px; text-align:center; }
+  .lb-title{ font-size:10px; color:var(--mute); letter-spacing:2px; margin:0 0 6px 2px; text-align:left; }
+</style>
+</head>
+<body>
+
+<div id="scene"></div>
+
+<div class="hud" id="topbar">
+  <div class="brand">PADDLE <span>// TELEMETRY TABLE TENNIS</span></div>
+  <div class="score-block">
+    <div>
+      <div class="score-num" id="scoreVal">0</div>
+      <div class="score-label">SCORE</div>
+    </div>
+    <div>
+      <div class="lives" id="livesRow"></div>
+      <div class="score-label">LIVES</div>
+    </div>
+  </div>
+</div>
+
+<div class="hud" id="hint">MOUSE / ARROW KEYS = MANUAL OVERRIDE &nbsp;·&nbsp; RALLY THE AVATAR — MISS THE RETURN AND YOU LOSE A LIFE</div>
+
+<div class="hud" id="telemetry">
+  <div class="telem-col">
+    <div class="telem-row">
+      <div class="telem-label">ROLL</div>
+      <div class="telem-bar"><div class="telem-fill" id="rollFill"></div></div>
+      <div class="telem-val" id="rollVal">0.0</div>
+    </div>
+    <div class="telem-row">
+      <div class="telem-label">PITCH</div>
+      <div class="telem-bar"><div class="telem-fill" id="pitchFill"></div></div>
+      <div class="telem-val" id="pitchVal">0.0</div>
+    </div>
+  </div>
+  <div id="status">
+    <button class="btn-hud" id="calibBtn">SET CENTER</button>
+    <div id="status-dot"></div>
+    <div id="status-text">NO LINK</div>
+  </div>
+</div>
+
+<div id="panel">
+  <div class="card">
+    <h1>LINK SETUP</h1>
+    <p class="sub">CONNECT ESP32 + MPU6050 PADDLE, OR PLAY MANUAL</p>
+    <div class="field">
+      <label>ESP32 IP ADDRESS</label>
+      <input type="text" id="ipInput" placeholder="e.g. 192.168.1.42" value="192.168.1.42">
+    </div>
+
+    <div class="field">
+      <label>SENSITIVITY (TILT ANGLE DEGREE RANGE)</label>
+      <input type="range" id="sensitivity" min="10" max="45" value="28">
+    </div>
+
+    <div class="checkbox-row">
+      <label><input type="checkbox" id="swapAxes"> SWAP X / Y</label>
+      <label><input type="checkbox" id="invertDir"> INVERT DIRECTION</label>
+    </div>
+
+    <div class="btnrow">
+      <button class="primary" id="connectBtn">CONNECT</button>
+      <button id="manualBtn">PLAY MANUAL</button>
+    </div>
+    <div id="panel-msg"></div>
+  </div>
+</div>
+
+<div id="namePanel">
+  <div class="card">
+    <h1>PLAYER ID</h1>
+    <p class="sub">ENTER A NAME FOR THE LEADERBOARD</p>
+    <div class="field">
+      <label>CALLSIGN</label>
+      <input type="text" id="nameInput" placeholder="e.g. KARTHI" maxlength="14">
+    </div>
+    <div class="btnrow">
+      <button class="primary" id="nameEnterBtn">START RALLY</button>
+    </div>
+  </div>
+</div>
+
+<div id="gameover">
+  <div class="go-card">
+    <h2>LINE DROPPED</h2>
+    <p id="finalScore">SCORE: 0</p>
+    <div class="lb-title">// LEADERBOARD</div>
+    <div class="leaderboard" id="leaderboardList"></div>
+    <button class="primary" id="restartBtn">RESTART</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ============================= CONFIG ============================= */
+const TABLE_HALF_W = 1.52;   
+const TABLE_NEAR_Z = 3.8;    
+const TABLE_FAR_Z  = -3.8;   
+const PADDLE_Z     = 3.35;   
+const OPPONENT_Z   = -3.35;  
+const PADDLE_MIN_Y = 0.35;
+const PADDLE_MAX_Y = 1.9;
+const GRAVITY      = -4.1;
+const HIT_RADIUS_X = 0.45;
+const HIT_RADIUS_Y = 0.42;
+const OPP_ARM_LEN    = 0.55;
+const SWING_DURATION = 0.22;
+const START_SPEED = 4.6;     
+const MAX_SPEED   = 8.5;     
+
+/* ============================= STATE & CALIBRATION ============================= */
+let score = 0, lives = 3, running = false;
+let ws = null, manualMode = false;
+let playerName = '';
+const LB_KEY = 'paddleLeaderboard';
+
+// Raw telemetry values from ESP32
+let liveRoll = 0, livePitch = 0;   
+// Dynamic Zero Calibration Offsets
+let zeroRoll = 0, zeroPitch = 0;
+// Exponential Filter Variables
+let smoothX = 0, smoothY = 0;
+const SMOOTHING = 0.25; 
+
+let manualX = 0, manualY = 1.0;    
+let usingManualOverride = false;
+
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key] = true; });
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+window.addEventListener('mousemove', e => {
+  usingManualOverride = true;
+  const nx = (e.clientX / window.innerWidth) * 2 - 1;
+  const ny = (e.clientY / window.innerHeight) * 2 - 1;
+  manualX = nx * TABLE_HALF_W;
+  manualY = 1.1 - ny * 0.9;
+});
+
+/* ============================= THREE.JS SCENE SETUP ============================= */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0e14);
+scene.fog = new THREE.Fog(0x0a0e14, 6, 16);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0, 2.6, 6.4);
+camera.lookAt(0, 0.6, -1.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.getElementById('scene').appendChild(renderer.domElement);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Lights
+scene.add(new THREE.AmbientLight(0x8899aa, 0.55));
+const key1 = new THREE.PointLight(0x00e5c7, 0.8, 20);
+key1.position.set(-2, 4, 2);
+scene.add(key1);
+const key2 = new THREE.PointLight(0xffffff, 0.6, 20);
+key2.position.set(2, 4, -1);
+scene.add(key2);
+
+// Table
+const tableGeo = new THREE.BoxGeometry(TABLE_HALF_W*2 + 0.2, 0.12, TABLE_NEAR_Z - TABLE_FAR_Z + 0.2);
+const tableMat = new THREE.MeshStandardMaterial({ color: 0x0e3d3a, roughness: 0.55, metalness: 0.15 });
+const table = new THREE.Mesh(tableGeo, tableMat);
+table.position.set(0, -0.06, 0);
+scene.add(table);
+
+// Center line
+const lineMat = new THREE.MeshBasicMaterial({ color: 0x00e5c7 });
+const centerLine = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.001, TABLE_NEAR_Z - TABLE_FAR_Z), lineMat);
+centerLine.position.set(0, 0.001, 0);
+scene.add(centerLine);
+
+// Net
+const netGeo = new THREE.BoxGeometry(TABLE_HALF_W*2 + 0.2, 0.28, 0.02);
+const netMat = new THREE.MeshStandardMaterial({ color: 0x1c2530, transparent:true, opacity:0.85 });
+const net = new THREE.Mesh(netGeo, netMat);
+net.position.set(0, 0.14, 0);
+scene.add(net);
+
+// Legs
+for (const sx of [-1,1]) for (const sz of [-1,1]) {
+  const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08,1.2,0.08), new THREE.MeshStandardMaterial({color:0x1c2530}));
+  leg.position.set(sx*(TABLE_HALF_W-0.1), -0.66, sz*((TABLE_NEAR_Z-TABLE_FAR_Z)/2 - 0.1));
+  scene.add(leg);
+}
+
+// Floor
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(40,40), new THREE.MeshStandardMaterial({color:0x0d1219, roughness:0.9}));
+floor.rotation.x = -Math.PI/2;
+floor.position.y = -1.26;
+scene.add(floor);
+
+// Player Paddle
+const paddleGroup = new THREE.Group();
+const paddleFace = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.26, 0.26, 0.04, 32),
+  new THREE.MeshStandardMaterial({ color: 0xff4d5e, roughness:0.4 })
+);
+paddleFace.rotation.x = Math.PI/2;
+paddleGroup.add(paddleFace);
+const paddleHandle = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.06,0.06,0.3,16),
+  new THREE.MeshStandardMaterial({ color: 0x2a1a12 })
+);
+paddleHandle.position.set(0,-0.28,0);
+paddleGroup.add(paddleHandle);
+paddleGroup.position.set(0, 1.0, PADDLE_Z);
+scene.add(paddleGroup);
+
+// Opponent Figure
+const opponentGroup = new THREE.Group();
+const oppTorso = new THREE.Mesh(
+  new THREE.BoxGeometry(0.5, 0.72, 0.3),
+  new THREE.MeshStandardMaterial({ color: 0x22303c, roughness:0.6 })
+);
+oppTorso.position.set(0, 1.05, 0);
+opponentGroup.add(oppTorso);
+const oppHead = new THREE.Mesh(
+  new THREE.SphereGeometry(0.18, 20, 20),
+  new THREE.MeshStandardMaterial({ color: 0xffb300, roughness:0.4 })
+);
+oppHead.position.set(0, 1.63, 0);
+opponentGroup.add(oppHead);
+const oppArm = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.06, 0.06, OPP_ARM_LEN, 12),
+  new THREE.MeshStandardMaterial({ color: 0x22303c })
+);
+oppArm.rotation.z = Math.PI/2.5;
+oppArm.position.set(0.34, 1.08, 0.08);
+opponentGroup.add(oppArm);
+opponentGroup.position.set(0, 0, TABLE_FAR_Z - 0.55);
+scene.add(opponentGroup);
+
+// Opponent Paddle
+const opponentPaddleGroup = new THREE.Group();
+const oppPaddleFace = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.26, 0.26, 0.04, 32),
+  new THREE.MeshStandardMaterial({ color: 0xffb300, roughness:0.4 })
+);
+oppPaddleFace.rotation.x = Math.PI/2;
+opponentPaddleGroup.add(oppPaddleFace);
+const oppPaddleHandle = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.05,0.05,0.24,16),
+  new THREE.MeshStandardMaterial({ color: 0x2a1a12 })
+);
+oppPaddleHandle.position.set(0,-0.24,0);
+opponentPaddleGroup.add(oppPaddleHandle);
+opponentPaddleGroup.position.set(0.4, 1.08, OPPONENT_Z);
+scene.add(opponentPaddleGroup);
+
+// Ball
+const ballGeo = new THREE.SphereGeometry(0.07, 24, 24);
+const ballMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive:0x222222, roughness:0.3 });
+const ball = new THREE.Mesh(ballGeo, ballMat);
+scene.add(ball);
+
+let ballVel = new THREE.Vector3();
+let ballActive = false;
+let baseSpeed = START_SPEED;
+
+function spawnBall() {
+  const startX = (Math.random()*2 - 1) * (TABLE_HALF_W - 0.3);
+  ball.position.set(startX, 1.3, TABLE_FAR_Z + 0.2);
+  const targetX = (Math.random()*2 - 1) * (TABLE_HALF_W - 0.4);
+  const dz = TABLE_NEAR_Z - TABLE_FAR_Z - 0.4;
+  const speed = baseSpeed;
+  const travelTime = dz / speed;
+  ballVel.set((targetX - startX) / travelTime, 2.0, speed);
+  ballActive = true;
+}
+
+/* ============================= HUD HELPERS ============================= */
+const scoreVal = document.getElementById('scoreVal');
+const livesRow = document.getElementById('livesRow');
+const rollFill = document.getElementById('rollFill');
+const pitchFill = document.getElementById('pitchFill');
+const rollVal = document.getElementById('rollVal');
+const pitchVal = document.getElementById('pitchVal');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+
+function renderLives() {
+  livesRow.innerHTML = '';
+  for (let i=0;i<3;i++){
+    const d = document.createElement('div');
+    d.className = 'life-dot' + (i < lives ? '' : ' lost');
+    livesRow.appendChild(d);
+  }
+}
+
+function updateScore() { scoreVal.textContent = score; }
+
+function updateTelemetryHUD(dRoll, dPitch, maxTilt) {
+  const clampedRoll = Math.max(-maxTilt, Math.min(maxTilt, dRoll));
+  const clampedPitch = Math.max(-maxTilt, Math.min(maxTilt, dPitch));
+  const rp = 50 + (clampedRoll / maxTilt) * 50;
+  const pp = 50 + (clampedPitch / maxTilt) * 50;
+  rollFill.style.left = Math.min(50, rp) + '%';
+  rollFill.style.width = Math.abs(rp-50) + '%';
+  pitchFill.style.left = Math.min(50, pp) + '%';
+  pitchFill.style.width = Math.abs(pp-50) + '%';
+  rollVal.textContent = dRoll.toFixed(1);
+  pitchVal.textContent = dPitch.toFixed(1);
+}
+
+/* ============================= WEBSOCKET (ESP32 LINK) ============================= */
+function connectWS(ip) {
+  const msgEl = document.getElementById('panel-msg');
+  try {
+    ws = new WebSocket('ws://' + ip + ':81/');
+  } catch (e) {
+    msgEl.textContent = 'INVALID ADDRESS';
+    msgEl.className = 'err';
+    return;
+  }
+  msgEl.textContent = 'CONNECTING...';
+  msgEl.className = '';
+
+  ws.onopen = () => {
+    msgEl.textContent = 'LINK ESTABLISHED';
+    msgEl.className = 'ok';
+    statusDot.classList.add('live');
+    statusText.textContent = 'ESP32 LINKED';
+    setTimeout(showNamePanel, 400);
+  };
+
+  ws.onmessage = (evt) => {
+    try {
+      const data = JSON.parse(evt.data);
+      liveRoll = data.roll;
+      livePitch = data.pitch;
+      usingManualOverride = false;
+    } catch(e) {}
+  };
+
+  ws.onerror = () => {
+    msgEl.textContent = 'CONNECTION FAILED — CHECK IP / WIFI';
+    msgEl.className = 'err';
+  };
+
+  ws.onclose = () => {
+    statusDot.classList.remove('live');
+    statusText.textContent = 'LINK LOST';
+  };
+}
+
+// Zero-Point Software Calibration
+function calibrateZero() {
+  zeroRoll = liveRoll;
+  zeroPitch = livePitch;
+  smoothX = 0;
+  smoothY = 0;
+}
+
+document.getElementById('calibBtn').addEventListener('click', calibrateZero);
+
+document.getElementById('connectBtn').addEventListener('click', () => {
+  const ip = document.getElementById('ipInput').value.trim();
+  if (!ip) {
+    const msgEl = document.getElementById('panel-msg');
+    msgEl.textContent = 'ENTER AN IP ADDRESS';
+    msgEl.className = 'err';
+    return;
+  }
+  manualMode = false;
+  connectWS(ip);
+});
+
+document.getElementById('manualBtn').addEventListener('click', () => {
+  manualMode = true;
+  statusText.textContent = 'MANUAL MODE';
+  showNamePanel();
+});
+
+document.getElementById('restartBtn').addEventListener('click', () => {
+  document.getElementById('gameover').classList.remove('show');
+  showNamePanel();
+});
+
+/* ============================= NAME ENTRY ============================= */
+function showNamePanel() {
+  document.getElementById('panel').classList.add('hidden');
+  const namePanel = document.getElementById('namePanel');
+  namePanel.classList.add('show');
+  const input = document.getElementById('nameInput');
+  input.value = playerName || '';
+  setTimeout(() => input.focus(), 50);
+}
+
+function confirmName() {
+  const input = document.getElementById('nameInput');
+  const val = input.value.trim().toUpperCase();
+  playerName = val || 'PLAYER';
+  document.getElementById('namePanel').classList.remove('show');
+  startGame();
+}
+
+document.getElementById('nameEnterBtn').addEventListener('click', confirmName);
+document.getElementById('nameInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') confirmName();
+});
+
+function startGame() {
+  document.getElementById('panel').classList.add('hidden');
+  score = 0; lives = 3;
+  updateScore(); renderLives();
+  running = true;
+  baseSpeed = START_SPEED;
+  spawnBall();
+}
+
+/* ============================= LEADERBOARD ============================= */
+function loadLeaderboard() {
+  try {
+    return JSON.parse(localStorage.getItem(LB_KEY)) || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveScoreToLeaderboard(name, finalScore, ts) {
+  const board = loadLeaderboard();
+  board.push({ name, score: finalScore, ts });
+  board.sort((a, b) => b.score - a.score);
+  const trimmed = board.slice(0, 10);
+  localStorage.setItem(LB_KEY, JSON.stringify(trimmed));
+  return trimmed;
+}
+
+function renderLeaderboard(board, justPlayedTs) {
+  const el = document.getElementById('leaderboardList');
+  el.innerHTML = '';
+  if (!board.length) {
+    el.innerHTML = '<div class="lb-empty">NO ENTRIES YET</div>';
+    return;
+  }
+  board.forEach((entry, i) => {
+    const row = document.createElement('div');
+    row.className = 'lb-row' + (entry.ts === justPlayedTs ? ' me' : '');
+    row.innerHTML =
+      '<div class="lb-rank">' + (i + 1) + '</div>' +
+      '<div class="lb-name">' + entry.name + '</div>' +
+      '<div class="lb-score">' + entry.score + '</div>';
+    el.appendChild(row);
+  });
+}
+
+/* ============================= GAME LOOP & PHYSICS ============================= */
+let missTimer = null;
+
+function handleMiss() {
+  lives -= 1;
+  renderLives();
+  ballActive = false;
+  if (lives <= 0) {
+    running = false;
+    document.getElementById('finalScore').textContent = 'SCORE: ' + score;
+    const myEntryTs = Date.now();
+    const board = saveScoreToLeaderboard(playerName || 'PLAYER', score, myEntryTs);
+    renderLeaderboard(board, myEntryTs);
+    document.getElementById('gameover').classList.add('show');
+  } else {
+    missTimer = setTimeout(() => { if(running) spawnBall(); }, 900);
+  }
+}
+
+function handleHit(relX, relY) {
+  score += 1;
+  updateScore();
+  baseSpeed = Math.min(baseSpeed + 0.12, MAX_SPEED);
+  const targetX = (Math.random()*2 - 1) * (TABLE_HALF_W - 0.4);
+  const dz = TABLE_NEAR_Z - TABLE_FAR_Z - 0.4;
+  const travelTime = dz / baseSpeed;
+  ballVel.set((targetX - ball.position.x) / travelTime + relX*1.5, 2.2 + relY*1.2, -baseSpeed);
+  ball.position.z = PADDLE_Z - 0.1;
+  triggerSwing(paddleGroup);
+}
+
+function triggerSwing(mesh) {
+  mesh.userData.swingStart = performance.now();
+}
+
+function applySwing(mesh, forwardSign) {
+  if (mesh.userData.swingStart == null) { mesh.rotation.x = 0; return; }
+  const elapsed = (performance.now() - mesh.userData.swingStart) / 1000;
+  if (elapsed > SWING_DURATION) { mesh.rotation.x = 0; mesh.userData.swingStart = null; return; }
+  const t = elapsed / SWING_DURATION;
+  mesh.rotation.x = Math.sin(t * Math.PI) * forwardSign * 0.85;
+}
+
+function opponentReturn() {
+  const targetX = (Math.random()*2 - 1) * (TABLE_HALF_W - 0.4);
+  const dz = TABLE_NEAR_Z - TABLE_FAR_Z - 0.4;
+  const travelTime = dz / baseSpeed;
+  ballVel.set((targetX - ball.position.x) / travelTime, 2.0 + Math.random()*0.7, baseSpeed);
+  ball.position.z = OPPONENT_Z + 0.1;
+  triggerSwing(opponentPaddleGroup);
+}
+
+function opponentMiss() {
+  ballActive = false;
+  score += 1;
+  updateScore();
+  missTimer = setTimeout(() => { if (running) spawnBall(); }, 1000);
+}
+
+let lastTime = performance.now();
+
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min((now - lastTime)/1000, 0.05);
+  lastTime = now;
+
+  /* --- PADDLE CONTROL & CALIBRATION CALCULATION --- */
+  let targetX, targetY;
+  const maxTiltDeg = parseFloat(document.getElementById('sensitivity').value);
+
+  if (manualMode || usingManualOverride) {
+    if (keys['ArrowLeft'])  manualX -= 2.2*dt;
+    if (keys['ArrowRight']) manualX += 2.2*dt;
+    if (keys['ArrowUp'])    manualY += 1.6*dt;
+    if (keys['ArrowDown'])  manualY -= 1.6*dt;
+    targetX = manualX;
+    targetY = manualY;
+  } else {
+    // 1. Calculate relative angular delta from zero-point
+    let dRoll = liveRoll - zeroRoll;
+    let dPitch = livePitch - zeroPitch;
+
+    // 2. Handle 180° / -180° angle wraparounds
+    if (dRoll > 180) dRoll -= 360;
+    if (dRoll < -180) dRoll += 360;
+    if (dPitch > 180) dPitch -= 360;
+    if (dPitch < -180) dPitch += 360;
+
+    // 3. Process Live Control Configuration
+    const swapAxes = document.getElementById('swapAxes').checked;
+    const invert = document.getElementById('invertDir').checked ? -1 : 1;
+
+    let inputX = (swapAxes ? dPitch : dRoll) * invert;
+    let inputY = (swapAxes ? dRoll : dPitch) * invert;
+
+    // 4. Secondary EMA Filter
+    smoothX += (inputX - smoothX) * SMOOTHING;
+    smoothY += (inputY - smoothY) * SMOOTHING;
+
+    targetX = Math.max(-1, Math.min(1, smoothX / maxTiltDeg)) * TABLE_HALF_W;
+    targetY = PADDLE_MIN_Y + (Math.max(-1, Math.min(1, smoothY / maxTiltDeg)) * 0.5 + 0.5) * (PADDLE_MAX_Y - PADDLE_MIN_Y);
+    
+    updateTelemetryHUD(smoothX, smoothY, maxTiltDeg);
+  }
+
+  targetX = Math.max(-TABLE_HALF_W, Math.min(TABLE_HALF_W, targetX));
+  targetY = Math.max(PADDLE_MIN_Y, Math.min(PADDLE_MAX_Y, targetY));
+  
+  paddleGroup.position.x += (targetX - paddleGroup.position.x) * 0.35;
+  paddleGroup.position.y += (targetY - paddleGroup.position.y) * 0.35;
+
+  /* --- OPPONENT AVATAR AI --- */
+  const oppTargetX = Math.max(-TABLE_HALF_W, Math.min(TABLE_HALF_W, ball.position.x));
+  opponentGroup.position.x += (oppTargetX - opponentGroup.position.x) * 0.05;
+  opponentPaddleGroup.position.x += ((oppTargetX + 0.05) - opponentPaddleGroup.position.x) * 0.14;
+  applySwing(paddleGroup, -1);
+  applySwing(opponentPaddleGroup, 1);
+
+  /* --- BALL PHYSICS --- */
+  if (running && ballActive) {
+    ballVel.y += GRAVITY * dt;
+    ball.position.x += ballVel.x * dt;
+    ball.position.y += ballVel.y * dt;
+    ball.position.z += ballVel.z * dt;
+
+    // Bounce on table surface
+    if (ball.position.y <= 0.07 && ballVel.y < 0 && Math.abs(ball.position.z) < (TABLE_NEAR_Z-TABLE_FAR_Z)/2) {
+      ball.position.y = 0.07;
+      ballVel.y *= -0.72;
+    }
+
+    // Check Player Paddle Hit
+    if (ball.position.z >= PADDLE_Z - 0.06 && ballVel.z > 0) {
+      const dx = ball.position.x - paddleGroup.position.x;
+      const dy = ball.position.y - paddleGroup.position.y;
+      if (Math.abs(dx) < HIT_RADIUS_X && Math.abs(dy) < HIT_RADIUS_Y) {
+        handleHit(dx, dy);
+      } else {
+        handleMiss();
+      }
+    }
+
+    // Check Opponent Return
+    if (ball.position.z <= OPPONENT_Z + 0.15 && ballVel.z < 0) {
+      const missChance = Math.min(0.05 + (baseSpeed - START_SPEED) * 0.03, 0.35);
+      if (Math.random() < missChance) {
+        opponentMiss();
+      } else {
+        opponentReturn();
+      }
+    }
+
+    // Out of Bounds check
+    if (ball.position.y < -1.0 || ball.position.z > TABLE_NEAR_Z + 1.0 || ball.position.z < TABLE_FAR_Z - 1.0) {
+      if (ballActive) handleMiss();
+    }
+  }
+
+  ball.rotation.x += 4*dt;
+  ball.rotation.y += 3*dt;
+
+  renderer.render(scene, camera);
+}
+
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
